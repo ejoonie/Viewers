@@ -1,3 +1,4 @@
+// https://developers.google.com/web/tools/workbox/guides/codelabs/webpack
 // ~~ WebPack
 const path = require('path');
 const merge = require('webpack-merge');
@@ -9,8 +10,9 @@ const BundleAnalyzerPlugin = require('webpack-bundle-analyzer')
 const { CleanWebpackPlugin } = require('clean-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const ExtractCssChunksPlugin = require('extract-css-chunks-webpack-plugin');
+// const FaviconsWebpackPlugin = require('favicons-webpack-plugin');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
-const WorkboxPlugin = require('workbox-webpack-plugin');
+const { InjectManifest } = require('workbox-webpack-plugin');
 const TerserJSPlugin = require('terser-webpack-plugin');
 const OptimizeCSSAssetsPlugin = require('optimize-css-assets-webpack-plugin');
 // ~~ Rules
@@ -32,26 +34,10 @@ module.exports = (env, argv) => {
   const hasProxy = PROXY_TARGET && PROXY_DOMAIN;
 
   const mergedConfig = merge(baseConfig, {
-    devtool: isProdBuild ? 'source-map' : 'cheap-module-eval-source-map',
     output: {
       path: DIST_DIR,
       filename: isProdBuild ? '[name].bundle.[chunkhash].js' : '[name].js',
       publicPath: PUBLIC_URL, // Used by HtmlWebPackPlugin for asset prefix
-    },
-    stats: {
-      colors: true,
-      hash: true,
-      timings: true,
-      assets: true,
-      chunks: false,
-      chunkModules: false,
-      modules: false,
-      children: false,
-      warnings: true,
-    },
-    optimization: {
-      minimize: isProdBuild,
-      sideEffects: true,
     },
     module: {
       rules: [...extractStyleChunksRule(isProdBuild)],
@@ -85,8 +71,8 @@ module.exports = (env, argv) => {
       ]),
       // https://github.com/faceyspacey/extract-css-chunks-webpack-plugin#webpack-4-standalone-installation
       new ExtractCssChunksPlugin({
-        filename: '[name].css',
-        chunkFilename: '[id].css',
+        filename: isProdBuild ? '[name].[hash].css' : '[name].css',
+        chunkFilename: isProdBuild ? '[id].[hash].css' : '[id].css',
         ignoreOrder: false, // Enable to remove warnings about conflicting order
       }),
       // Generate "index.html" w/ correct includes/imports
@@ -96,12 +82,14 @@ module.exports = (env, argv) => {
         templateParameters: {
           PUBLIC_URL: PUBLIC_URL,
         },
-        // favicon: `${PUBLIC_DIR}/favicon.ico`,
       }),
-      new WorkboxPlugin.GenerateSW({
+      // No longer maintained; but good for generating icons + manifest
+      // new FaviconsWebpackPlugin( path.join(PUBLIC_DIR, 'assets', 'icons-512.png')),
+      new InjectManifest({
         swDest: 'sw.js',
-        clientsClaim: true,
-        skipWaiting: true,
+        swSrc: path.join(SRC_DIR, 'service-worker.js'),
+        // Increase the limit to 4mb:
+        // maximumFileSizeToCacheInBytes: 4 * 1024 * 1024
       }),
     ],
     // https://webpack.js.org/configuration/dev-server/
@@ -129,15 +117,6 @@ module.exports = (env, argv) => {
 
   if (!isProdBuild) {
     mergedConfig.plugins.push(new webpack.HotModuleReplacementPlugin());
-
-    //
-    mergedConfig.optimization.minimizer = [
-      new TerserJSPlugin({
-        sourceMap: true,
-        parallel: true,
-      }),
-      new OptimizeCSSAssetsPlugin({}),
-    ];
   }
 
   return mergedConfig;

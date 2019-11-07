@@ -6,7 +6,7 @@ import cornerstone from 'cornerstone-core';
 
 //
 import jumpToRowItem from './jumpToRowItem.js';
-import getMeasurementLocationCallback from './../../lib/getMeasurementLocationCallback';
+import getMeasurementLocationCallback from './getMeasurementLocationCallback';
 
 const { setViewportSpecificData } = OHIF.redux.actions;
 const { MeasurementApi } = OHIF.measurements;
@@ -28,16 +28,12 @@ function getAllTools() {
   return tools;
 }
 
-function getMeasurementText(measurementData) {
-  const { location, description } = measurementData;
-  let text = '...';
-  if (location) {
-    text = location;
-    if (description) {
-      text += `(${description})`;
-    }
-  }
-  return text;
+function getMeasurementText(measurementData = {}) {
+  const defaultText = '...';
+  const { location = '', description = '' } = measurementData;
+  const result = location + (description ? ` (${description})` : '');
+
+  return result || defaultText;
 }
 
 function getDataForEachMeasurementNumber(

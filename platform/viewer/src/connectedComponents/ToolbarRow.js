@@ -1,19 +1,21 @@
-import './ToolbarRow.css';
-
 import React, { Component } from 'react';
+import { MODULE_TYPES } from '@ohif/core';
+import PropTypes from 'prop-types';
+import { withTranslation } from 'react-i18next';
 import {
   ExpandableToolMenu,
   RoundedButtonGroup,
   ToolbarButton,
+  withModal,
 } from '@ohif/ui';
+
+import './ToolbarRow.css';
 import { commandsManager, extensionManager } from './../App.js';
 
 import ConnectedCineDialog from './ConnectedCineDialog';
+import ConnectedViewportDownloadForm from './ConnectedViewportDownloadForm';
 import ConnectedLayoutButton from './ConnectedLayoutButton';
 import ConnectedPluginSwitch from './ConnectedPluginSwitch.js';
-import { MODULE_TYPES } from '@ohif/core';
-import PropTypes from 'prop-types';
-import { withTranslation } from 'react-i18next';
 
 class ToolbarRow extends Component {
   // TODO: Simplify these? isOpen can be computed if we say "any" value for selected,
@@ -25,6 +27,7 @@ class ToolbarRow extends Component {
     selectedRightSidePanel: PropTypes.string.isRequired,
     handleSidePanelChange: PropTypes.func,
     activeContexts: PropTypes.arrayOf(PropTypes.string).isRequired,
+    studies: PropTypes.array,
   };
 
   constructor(props) {
@@ -128,7 +131,7 @@ class ToolbarRow extends Component {
           </div>
           {buttonComponents}
           <ConnectedLayoutButton />
-          <ConnectedPluginSwitch />
+          <ConnectedPluginSwitch studies={this.props.studies} />
           <div
             className="pull-right m-t-1 rm-x-1"
             style={{ marginLeft: 'auto' }}
@@ -229,7 +232,6 @@ function _getButtonComponents(toolbarButtons, activeButtons) {
   });
 }
 
-
 /**
  * A handy way for us to handle different button types. IE. firing commands for
  * buttons, or initiation built in behavior.
@@ -283,6 +285,15 @@ function _handleBuiltIn({ behavior } = {}) {
       isCineDialogOpen: !this.state.isCineDialogOpen,
     });
   }
+
+  if (behavior === 'DOWNLOAD_SCREEN_SHOT') {
+    this.props.modalContext.show(ConnectedViewportDownloadForm, {
+      title: this.props.t('Download High Quality Image'),
+      customClassName: 'ViewportDownloadForm',
+    });
+  }
 }
 
-export default withTranslation('Common')(ToolbarRow);
+export default withTranslation(['Common', 'ViewportDownloadForm'])(
+  withModal(ToolbarRow)
+);
