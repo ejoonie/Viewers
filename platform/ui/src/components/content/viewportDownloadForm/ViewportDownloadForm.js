@@ -1,9 +1,16 @@
-import React, { useEffect, useState, createRef } from 'react';
+import React, {
+  useRef,
+  useCallback,
+  useEffect,
+  useState,
+  createRef,
+} from 'react';
 import PropTypes from 'prop-types';
 import { useTranslation } from 'react-i18next';
 
 import './ViewportDownloadForm.styl';
-import { TextInput, Select } from '@ohif/ui';
+import { TextInput, Select, Icon } from '@ohif/ui';
+import classnames from 'classnames';
 
 const FILE_TYPE_OPTIONS = [
   {
@@ -17,6 +24,7 @@ const FILE_TYPE_OPTIONS = [
 ];
 
 const DEFAULT_FILENAME = 'image';
+const REFRESH_VIEWPORT_TIMEOUT = 1000;
 
 const ViewportDownloadForm = ({
   activeViewport,
@@ -37,147 +45,46 @@ const ViewportDownloadForm = ({
   const [filename, setFilename] = useState(DEFAULT_FILENAME);
   const [fileType, setFileType] = useState('jpg');
 
-  const [height, setHeight] = useState(defaultSize);
-  const [width, setWidth] = useState(defaultSize);
+  const [dimensions, setDimensions] = useState({
+    width: defaultSize,
+    height: defaultSize,
+  });
 
   const [showAnnotations, setShowAnnotations] = useState(true);
 
   const [keepAspect, setKeepAspect] = useState(true);
-  const [lastImage, setLastImage] = useState();
+  const [aspectMultiplier, setAspectMultiplier] = useState({
+    width: 1,
+    height: 1,
+  });
 
   const [viewportElement, setViewportElement] = useState();
-  const [viewportElementHeight, setViewportElementHeight] = useState(
-    minimumSize
-  );
-  const [viewportElementWidth, setViewportElementWidth] = useState(minimumSize);
+  const [viewportElementDimensions, setViewportElementDimensions] = useState({
+    width: defaultSize,
+    height: defaultSize,
+  });
 
   const [downloadCanvas, setDownloadCanvas] = useState({
     ref: createRef(),
-    width: minimumSize,
-    height: minimumSize,
+    width: defaultSize,
+    height: defaultSize,
   });
 
   const [viewportPreview, setViewportPreview] = useState({
     src: null,
-    width: minimumSize,
-    height: minimumSize,
+    width: defaultSize,
+    height: defaultSize,
   });
 
-  useEffect(() => {
-    enableViewport(viewportElement);
+  const [error, setError] = useState({
+    width: false,
+    height: false,
+    filename: false,
+  });
 
-    return () => {
-      disableViewport(viewportElement);
+  const hasError = Object.values(error).includes(true);
 
-      setHeight(defaultSize);
-      setWidth(defaultSize);
-    };
-  }, [defaultSize, disableViewport, enableViewport, viewportElement]);
-
-  useEffect(() => {
-    const validSize = value => (value >= minimumSize ? value : minimumSize);
-    const loadAndUpdateViewports = async () => {
-      const {
-        image,
-        width: scaledWidth,
-        height: scaledHeight,
-      } = await loadImage(activeViewport, viewportElement, width, height);
-      setLastImage(image);
-
-      toggleAnnotations(showAnnotations, viewportElement);
-
-      setViewportElementHeight(validSize(scaledHeight));
-      setViewportElementWidth(validSize(scaledWidth));
-
-      setDownloadCanvas(state => ({
-        ...state,
-        height: validSize(scaledHeight),
-        width: validSize(scaledWidth),
-      }));
-
-      const {
-        dataUrl,
-        width: viewportElementWidth,
-        height: viewportElementHeight,
-      } = await updateViewportPreview(
-        viewportElement,
-        downloadCanvas.ref.current,
-        fileType
-      );
-
-      setViewportPreview(state => ({
-        ...state,
-        src: dataUrl,
-        width: validSize(viewportElementWidth),
-        height: validSize(viewportElementHeight),
-      }));
-    };
-
-    loadAndUpdateViewports();
-  }, [
-    activeViewport,
-    viewportElement,
-    showAnnotations,
-    height,
-    width,
-    loadImage,
-    toggleAnnotations,
-    updateViewportPreview,
-    fileType,
-    downloadCanvas.ref,
-    minimumSize,
-    maximumSize,
-  ]);
-
-  const onHeightChange = event => {
-    const newHeight = Math.min(event.target.value, maximumSize);
-    setHeight(newHeight);
-
-    setViewportElementHeight(newHeight);
-
-    setDownloadCanvas(state => ({
-      ...state,
-      height: newHeight,
-    }));
-
-    if (keepAspect) {
-      const multiplier = newHeight / lastImage.height;
-      const newWidth = Math.round(lastImage.width * multiplier);
-
-      setWidth(newWidth);
-      setViewportElementWidth(newWidth);
-
-      setDownloadCanvas(state => ({
-        ...state,
-        width: newWidth,
-      }));
-    }
-  };
-
-  const onWidthChange = event => {
-    const newWidth = Math.min(event.target.value, maximumSize);
-    setWidth(newWidth);
-
-    setViewportElementWidth(newWidth);
-
-    setDownloadCanvas(state => ({
-      ...state,
-      width: newWidth,
-    }));
-
-    if (keepAspect) {
-      const multiplier = newWidth / lastImage.width;
-      const newHeight = Math.round(lastImage.height * multiplier);
-
-      setHeight(newHeight);
-      setViewportElementHeight(newHeight);
-
-      setDownloadCanvas(state => ({
-        ...state,
-        height: newHeight,
-      }));
-    }
-  };
+  const refreshViewport = useRef(null);
 
   const downloadImage = () => {
     downloadBlob(
@@ -188,35 +95,214 @@ const ViewportDownloadForm = ({
     );
   };
 
-  return (
-    <>
-      <div className="title">
-        {t(
-          'Please specify the dimensions, filename, and desired type for the output image.'
-        )}
-      </div>
+  /**
+   * @param {object} event - Input change event
+   * @param {string} dimension - "height" | "width"
+   */
+  const onDimensionsChange = (event, dimension) => {
+    const oppositeDimension = dimension === 'height' ? 'width' : 'height';
+    const sanitizedTargetValue = event.target.value.replace(/\D/, '');
+    const isEmpty = sanitizedTargetValue === '';
+    const newDimensions = { ...dimensions };
+    const updatedDimension = isEmpty
+      ? ''
+      : Math.min(sanitizedTargetValue, maximumSize);
 
-      <div className="file-info-container">
-        <div className="col">
-          <div className="width">
-            <TextInput
-              type="number"
-              min={minimumSize}
-              max={maximumSize}
-              value={width}
-              label={t('Image width (px)')}
-              onChange={onWidthChange}
-            />
+    if (updatedDimension === dimensions[dimension]) {
+      return;
+    }
+
+    newDimensions[dimension] = updatedDimension;
+
+    if (keepAspect && newDimensions[oppositeDimension] !== '') {
+      newDimensions[oppositeDimension] = Math.round(
+        newDimensions[dimension] * aspectMultiplier[oppositeDimension]
+      );
+    }
+
+    // In current code, keepAspect is always `true`
+    // And we always start w/ a square width/height
+    setDimensions(newDimensions);
+
+    // Only update if value is non-empty
+    if (!isEmpty) {
+      setViewportElementDimensions(newDimensions);
+      setDownloadCanvas(state => ({
+        ...state,
+        ...newDimensions,
+      }));
+    }
+  };
+
+  const error_messages = {
+    width: t('minWidthError'),
+    height: t('minHeightError'),
+    filename: t('emptyFilenameError'),
+  };
+
+  const renderErrorHandler = errorType => {
+    if (!error[errorType]) {
+      return null;
+    }
+
+    return <div className="input-error">{error_messages[errorType]}</div>;
+  };
+
+  const onKeepAspectToggle = () => {
+    const { width, height } = dimensions;
+    const aspectMultiplier = { ...aspectMultiplier };
+    if (!keepAspect) {
+      const base = Math.min(width, height);
+      aspectMultiplier.width = width / base;
+      aspectMultiplier.height = height / base;
+      setAspectMultiplier(aspectMultiplier);
+    }
+
+    setKeepAspect(!keepAspect);
+  };
+
+  const validSize = value => (value >= minimumSize ? value : minimumSize);
+  const loadAndUpdateViewports = useCallback(async () => {
+    const { width: scaledWidth, height: scaledHeight } = await loadImage(
+      activeViewport,
+      viewportElement,
+      dimensions.width,
+      dimensions.height
+    );
+
+    toggleAnnotations(showAnnotations, viewportElement);
+
+    const scaledDimensions = {
+      height: validSize(scaledHeight),
+      width: validSize(scaledWidth),
+    };
+
+    setViewportElementDimensions(scaledDimensions);
+    setDownloadCanvas(state => ({
+      ...state,
+      ...scaledDimensions,
+    }));
+
+    const {
+      dataUrl,
+      width: viewportElementWidth,
+      height: viewportElementHeight,
+    } = await updateViewportPreview(
+      viewportElement,
+      downloadCanvas.ref.current,
+      fileType
+    );
+
+    setViewportPreview(state => ({
+      ...state,
+      src: dataUrl,
+      width: validSize(viewportElementWidth),
+      height: validSize(viewportElementHeight),
+    }));
+  }, [
+    activeViewport,
+    viewportElement,
+    showAnnotations,
+    loadImage,
+    toggleAnnotations,
+    updateViewportPreview,
+    fileType,
+    downloadCanvas.ref,
+    minimumSize,
+    maximumSize,
+    viewportElementDimensions,
+  ]);
+
+  useEffect(() => {
+    enableViewport(viewportElement);
+
+    return () => {
+      disableViewport(viewportElement);
+    };
+  }, [disableViewport, enableViewport, viewportElement]);
+
+  useEffect(() => {
+    if (refreshViewport.current !== null) {
+      clearTimeout(refreshViewport.current);
+    }
+
+    refreshViewport.current = setTimeout(() => {
+      refreshViewport.current = null;
+      loadAndUpdateViewports();
+    }, REFRESH_VIEWPORT_TIMEOUT);
+  }, [
+    activeViewport,
+    viewportElement,
+    showAnnotations,
+    dimensions,
+    loadImage,
+    toggleAnnotations,
+    updateViewportPreview,
+    fileType,
+    downloadCanvas.ref,
+    minimumSize,
+    maximumSize,
+  ]);
+
+  useEffect(() => {
+    const { width, height } = dimensions;
+    const hasError = {
+      width: width < minimumSize,
+      height: height < minimumSize,
+      filename: !filename,
+    };
+
+    setError({ ...hasError });
+  }, [dimensions, filename, minimumSize]);
+
+  return (
+    <div className="ViewportDownloadForm">
+      <div className="title">{t('formTitle')}</div>
+
+      <div className="file-info-container" data-cy="file-info-container">
+        <div className="dimension-wrapper">
+          <div className="dimensions">
+            <div className="width">
+              <TextInput
+                type="number"
+                min={minimumSize}
+                max={maximumSize}
+                value={dimensions.width}
+                label={t('imageWidth')}
+                onChange={evt => onDimensionsChange(evt, 'width')}
+                data-cy="image-width"
+              />
+              {renderErrorHandler('width')}
+            </div>
+            <div className="height">
+              <TextInput
+                type="number"
+                min={minimumSize}
+                max={maximumSize}
+                value={dimensions.height}
+                label={t('imageHeight')}
+                onChange={evt => onDimensionsChange(evt, 'height')}
+                data-cy="image-height"
+              />
+              {renderErrorHandler('height')}
+            </div>
           </div>
-          <div className="height">
-            <TextInput
-              type="number"
-              min={minimumSize}
-              max={maximumSize}
-              value={height}
-              label={t('Image height (px)')}
-              onChange={onHeightChange}
-            />
+          <div className="keep-aspect-wrapper">
+            <button
+              id="keep-aspect"
+              className={classnames(
+                'form-button btn',
+                keepAspect ? 'active' : ''
+              )}
+              data-cy="keep-aspect"
+              alt={t('keepAspectRatio')}
+              onClick={onKeepAspectToggle}
+            >
+              <Icon
+                name={keepAspect ? 'link' : 'unlink'}
+                alt={keepAspect ? 'Dismiss Aspect' : 'Keep Aspect'}
+              />
+            </button>
           </div>
         </div>
 
@@ -224,18 +310,21 @@ const ViewportDownloadForm = ({
           <div className="file-name">
             <TextInput
               type="text"
+              data-cy="file-name"
               value={filename}
               onChange={event => setFilename(event.target.value)}
-              label={t('File name')}
+              label={t('filename')}
               id="file-name"
             />
+            {renderErrorHandler('filename')}
           </div>
           <div className="file-type">
             <Select
               value={fileType}
+              data-cy="file-type"
               onChange={event => setFileType(event.target.value)}
               options={FILE_TYPE_OPTIONS}
-              label={t('File type')}
+              label={t('fileType')}
             />
           </div>
         </div>
@@ -245,12 +334,13 @@ const ViewportDownloadForm = ({
             <label htmlFor="show-annotations" className="form-check-label">
               <input
                 id="show-annotations"
+                data-cy="show-annotations"
                 type="checkbox"
                 className="form-check-input"
                 checked={showAnnotations}
                 onChange={event => setShowAnnotations(event.target.checked)}
               />
-              {t('Show Annotations')}
+              {t('showAnnotations')}
             </label>
           </div>
         </div>
@@ -258,8 +348,8 @@ const ViewportDownloadForm = ({
 
       <div
         style={{
-          height: viewportElementHeight,
-          width: viewportElementWidth,
+          height: viewportElementDimensions.height,
+          width: viewportElementDimensions.width,
           position: 'absolute',
           left: '9999px',
         }}
@@ -278,32 +368,47 @@ const ViewportDownloadForm = ({
         ></canvas>
       </div>
 
-      <div className="preview">
-        <h4> {t('Image Preview')}</h4>
-        <img
-          className="viewport-preview"
-          src={viewportPreview.src}
-          alt="Viewport Preview"
-          style={{
-            height: viewportPreview.height,
-            width: viewportPreview.width,
-          }}
-        />
-      </div>
+      {viewportPreview.src ? (
+        <div className="preview" data-cy="image-preview">
+          <div className="preview-header"> {t('imagePreview')}</div>
+          <img
+            className="viewport-preview"
+            src={viewportPreview.src}
+            alt={t('imagePreview')}
+            data-cy="image-preview"
+            data-cy="viewport-preview-img"
+          />
+        </div>
+      ) : (
+        <div className="loading-image">
+          <Icon name="circle-notch" className="icon-spin" />
+          {t('loadingPreview')}
+        </div>
+      )}
 
       <div className="actions">
         <div className="action-cancel">
-          <button type="button" className="btn btn-danger" onClick={onClose}>
-            {t('Cancel')}
+          <button
+            type="button"
+            data-cy="cancel-btn"
+            className="btn btn-danger"
+            onClick={onClose}
+          >
+            {t('Buttons:Cancel')}
           </button>
         </div>
         <div className="action-save">
-          <button onClick={downloadImage} className="btn btn-primary">
-            {t('Download')}
+          <button
+            disabled={hasError}
+            onClick={downloadImage}
+            className="btn btn-primary"
+            data-cy="download-btn"
+          >
+            {t('Buttons:Download')}
           </button>
         </div>
       </div>
-    </>
+    </div>
   );
 };
 
@@ -316,6 +421,7 @@ ViewportDownloadForm.propTypes = {
   toggleAnnotations: PropTypes.func.isRequired,
   loadImage: PropTypes.func.isRequired,
   downloadBlob: PropTypes.func.isRequired,
+  /** A default width & height, between the minimum and maximum size */
   defaultSize: PropTypes.number.isRequired,
   minimumSize: PropTypes.number.isRequired,
   maximumSize: PropTypes.number.isRequired,

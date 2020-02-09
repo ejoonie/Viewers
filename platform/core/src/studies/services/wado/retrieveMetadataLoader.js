@@ -40,11 +40,13 @@ export default class RetrieveMetadataLoader {
         if (result && result.length) {
           break; // closes iterator in case data is retrieved successfully
         }
-      } catch (e) {}
+      } catch (e) {
+        throw e;
+      }
     }
 
     if (loaders.next().done && !result) {
-      throw 'cant find data';
+      throw new Error('RetrieveMetadataLoader failed');
     }
 
     return result;

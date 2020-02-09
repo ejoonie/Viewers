@@ -1,3 +1,6 @@
+import cloneDeep from 'lodash.clonedeep';
+import merge from 'lodash.merge';
+
 import {
   CLEAR_VIEWPORT,
   SET_ACTIVE_SPECIFIC_DATA,
@@ -8,112 +11,227 @@ import {
   SET_VIEWPORT_LAYOUT_AND_DATA,
 } from './../constants/ActionTypes.js';
 
-import cloneDeep from 'lodash.clonedeep';
-import merge from 'lodash.merge';
-
-const defaultState = {
+export const DEFAULT_STATE = {
   numRows: 1,
   numColumns: 1,
   activeViewportIndex: 0,
   layout: {
-    viewports: [
-      {
-        // plugin: 'cornerstone',
-      },
-    ],
+    viewports: [{}],
   },
   viewportSpecificData: {},
 };
 
 /**
- * @param {Object} [state=defaultState]
- * @param {Object} action
- * @param {string} [action.type]
- * @param {number} [action.viewportIndex]
- * @param {Object} [action.layout]
- * @param {Object} [action.viewportSpecificData]
+ *  Take the new number of rows and columns, delete all not used viewport data and also set
+ *  active viewport as default in case current one is not available anymore.
+ *
+ * @param {Number} numRows
+ * @param {Number} numColumns
+ * @param {Object} currentViewportSpecificData
+ * @returns
  */
-const viewports = (state = defaultState, action) => {
-  let viewportSpecificData;
+const findActiveViewportSpecificData = (
+  numRows,
+  numColumns,
+  currentViewportSpecificData = {}
+) => {
+  const numberOfViewports = numRows * numColumns;
+  const viewportSpecificData = cloneDeep(currentViewportSpecificData);
+
+  if (numberOfViewports < Object.keys(viewportSpecificData).length) {
+    Object.keys(viewportSpecificData).forEach(key => {
+      if (key > numberOfViewports - 1) {
+        delete viewportSpecificData[key];
+      }
+    });
+  }
+
+  return viewportSpecificData;
+};
+/**
+ *  Take new number of rows and columns and make sure the current active viewport index is still available, if not, return the default
+ *
+ * @param {Number} numRows
+ * @param {Number} numColumns
+ * @param {Number} currentActiveViewportIndex
+ * @returns
+ */
+const getActiveViewportIndex = (
+  numRows,
+  numColumns,
+  currentActiveViewportIndex
+) => {
+  const numberOfViewports = numRows * numColumns;
+
+  return currentActiveViewportIndex > numberOfViewports - 1
+    ? DEFAULT_STATE.activeViewportIndex
+    : currentActiveViewportIndex;
+};
+
+/**
+ * The definition of a viewport action.
+ *
+ * @typedef {Object} ViewportAction
+ * @property {string} type -
+ * @property {Object} data -
+ * @property {Object} layout -
+ * @property {number} viewportIndex -
+ * @property {Object} viewportSpecificData -
+ */
+
+/**
+ * @param {Object} [state=DEFAULT_STATE] The current viewport state.
+ * @param {ViewportAction} action A viewport action.
+ */
+const viewports = (state = DEFAULT_STATE, action) => {
   let useActiveViewport = false;
+
   switch (action.type) {
-    case SET_VIEWPORT_ACTIVE:
-      return Object.assign({}, state, {
-        activeViewportIndex: action.viewportIndex,
-      });
-    case SET_VIEWPORT_LAYOUT: {
-      const { numRows, numColumns, viewports } = action;
-      const layout = {
-        viewports: [...viewports],
-      };
-
-      return Object.assign({}, state, { numRows, numColumns, layout });
+    /**
+     * Sets the active viewport index.
+     *
+     * @return {Object} New state.
+     */
+    case SET_VIEWPORT_ACTIVE: {
+      const activeViewportIndex = getActiveViewportIndex(
+        state.numRows,
+        state.numColumns,
+        action.viewportIndex
+      );
+      return { ...state, activeViewportIndex };
     }
-    case SET_VIEWPORT_LAYOUT_AND_DATA: {
-      const { numRows, numColumns, viewports, viewportSpecificData } = action;
-      const layout = {
-        viewports: [...viewports],
-      };
 
-      return Object.assign({}, state, {
+    /**
+     * Sets viewport layout.
+     *
+     * @return {Object} New state.
+     */
+    case SET_VIEWPORT_LAYOUT: {
+      const { numRows, numColumns } = action;
+      const viewportSpecificData = findActiveViewportSpecificData(
         numRows,
         numColumns,
-        layout,
-        viewportSpecificData: cloneDeep(viewportSpecificData),
-      });
+        state.viewportSpecificData
+      );
+      const activeViewportIndex = getActiveViewportIndex(
+        numRows,
+        numColumns,
+        state.activeViewportIndex
+      );
+
+      return {
+        ...state,
+        numRows: action.numRows,
+        numColumns: action.numColumns,
+        layout: { viewports: [...action.viewports] },
+        viewportSpecificData,
+        activeViewportIndex,
+      };
     }
+
+    /**
+     * Sets viewport layout and data.
+     *
+     * @return {Object} New state.
+     */
+    case SET_VIEWPORT_LAYOUT_AND_DATA: {
+      const { numRows, numColumns } = action;
+      const viewportSpecificData = findActiveViewportSpecificData(
+        numRows,
+        numColumns,
+        action.viewportSpecificData
+      );
+      const activeViewportIndex = getActiveViewportIndex(
+        numRows,
+        numColumns,
+        state.activeViewportIndex
+      );
+
+      return {
+        ...state,
+        numRows: action.numRows,
+        numColumns: action.numColumns,
+        layout: { viewports: [...action.viewports] },
+        viewportSpecificData,
+        activeViewportIndex,
+      };
+    }
+
+    /**
+     * Sets viewport specific data of active viewport.
+     *
+     * @return {Object} New state.
+     */
     case SET_VIEWPORT: {
       const layout = cloneDeep(state.layout);
-      const hasPlugin = action.data && action.data.plugin;
 
-      viewportSpecificData = cloneDeep(state.viewportSpecificData);
+      let viewportSpecificData = cloneDeep(state.viewportSpecificData);
       viewportSpecificData[action.viewportIndex] = merge(
         {},
         viewportSpecificData[action.viewportIndex],
-        action.data
+        action.viewportSpecificData
       );
 
-      if (hasPlugin) {
-        layout.viewports[action.viewportIndex].plugin = action.data.plugin;
+      if (action.viewportSpecificData && action.viewportSpecificData.plugin) {
+        layout.viewports[action.viewportIndex].plugin =
+          action.viewportSpecificData.plugin;
       }
 
-      return Object.assign({}, state, { layout, viewportSpecificData });
+      return { ...state, layout, viewportSpecificData };
     }
+
+    /**
+     * Sets viewport specific data of active/any viewport.
+     *
+     * @return {Object} New state.
+     */
     case SET_ACTIVE_SPECIFIC_DATA:
       useActiveViewport = true;
     // Allow fall-through
     // eslint-disable-next-line
     case SET_SPECIFIC_DATA: {
       const layout = cloneDeep(state.layout);
-      const hasPlugin = action.data && action.data.plugin;
       const viewportIndex = useActiveViewport
         ? state.activeViewportIndex
         : action.viewportIndex;
-      const { dom } = state.viewportSpecificData[viewportIndex];
 
-      viewportSpecificData = cloneDeep(state.viewportSpecificData);
+      let viewportSpecificData = cloneDeep(state.viewportSpecificData);
       viewportSpecificData[viewportIndex] = {
-        dom,
-        ...action.data,
+        ...action.viewportSpecificData,
       };
 
-      if (hasPlugin) {
-        layout.viewports[viewportIndex].plugin = action.data.plugin;
+      if (action.viewportSpecificData && action.viewportSpecificData.plugin) {
+        layout.viewports[viewportIndex].plugin =
+          action.viewportSpecificData.plugin;
       }
 
-      return Object.assign({}, state, { layout, viewportSpecificData });
+      return { ...state, layout, viewportSpecificData };
     }
-    case CLEAR_VIEWPORT:
-      viewportSpecificData = cloneDeep(state.viewportSpecificData);
+
+    /**
+     * Clears viewport specific data of any viewport.
+     *
+     * @return {Object} New state.
+     */
+    case CLEAR_VIEWPORT: {
+      let viewportSpecificData = cloneDeep(state.viewportSpecificData);
+
       if (action.viewportIndex) {
         viewportSpecificData[action.viewportIndex] = {};
-        return Object.assign({}, state, { viewportSpecificData });
+        return { ...state, viewportSpecificData };
       } else {
-        return defaultState;
+        return DEFAULT_STATE;
       }
+    }
 
-    default:
+    /**
+     * Returns the current application state.
+     *
+     * @return {Object} The current state.
+     */
+    default: {
       return state;
+    }
   }
 };
 
