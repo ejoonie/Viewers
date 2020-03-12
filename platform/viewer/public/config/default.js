@@ -9,9 +9,9 @@ window.config = {
     dicomWeb: [
       {
         name: 'DCM4CHEE',
-        wadoUriRoot: 'http://15.165.171.194:8080/dcm4chee-arc/aets/DCM4CHEE/wado',
-        qidoRoot: 'http://15.165.171.194:8080/dcm4chee-arc/aets/DCM4CHEE/rs',
-        wadoRoot: 'http://15.165.171.194:8080/dcm4chee-arc/aets/DCM4CHEE/rs',
+        wadoUriRoot: 'http://yousunko.synology.me:8081/dcm4chee-arc/aets/DCM4CHEE/wado',
+        qidoRoot: 'http://yousunko.synology.me:8081/dcm4chee-arc/aets/DCM4CHEE/rs',
+        wadoRoot: 'http://yousunko.synology.me:8081/dcm4chee-arc/aets/DCM4CHEE/rs',
         qidoSupportsIncludeField: true,
         imageRendering: 'wadors',
         thumbnailRendering: 'wadors',
